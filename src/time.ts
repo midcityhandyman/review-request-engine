@@ -72,14 +72,22 @@ export function inQuietHours(at: Date, quiet: QuietHours, timeZone: string): boo
  * Returns `at` unchanged when it is already allowed.
  */
 export function nextAllowedTime(at: Date, quiet: QuietHours, timeZone: string): Date {
+  if (!inQuietHours(at, quiet, timeZone)) return at;
   let candidate = at;
-  // One pass is enough on a normal day. The extra passes cover a daylight saving
-  // change between the candidate and the end of quiet hours.
+  // One pass is enough on a normal day. The extra passes cover the night clocks
+  // go back, when the first jump lands an hour short of the end of quiet hours.
   for (let pass = 0; pass < 4 && inQuietHours(candidate, quiet, timeZone); pass++) {
     const minute = localMinuteOfDay(candidate, timeZone);
     const minutesUntilEnd = (quiet.endMinute - minute + 1440) % 1440;
     const startOfMinute = Math.floor(candidate.getTime() / MINUTE_MS) * MINUTE_MS;
     candidate = new Date(startOfMinute + minutesUntilEnd * MINUTE_MS);
+  }
+  // The night clocks go forward the jump overshoots by the skipped time. Walk
+  // back to the first allowed minute. On a normal day this stops at once.
+  for (let step = 0; step < 180; step++) {
+    const earlier = new Date(candidate.getTime() - MINUTE_MS);
+    if (earlier.getTime() <= at.getTime() || inQuietHours(earlier, quiet, timeZone)) break;
+    candidate = earlier;
   }
   return candidate;
 }

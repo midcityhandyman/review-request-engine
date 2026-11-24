@@ -5,6 +5,7 @@ import type {
   EngineConfig,
   EngineEvent,
   Sender,
+  SendResult,
   SuppressReason,
 } from "./types.ts";
 
@@ -23,6 +24,7 @@ export class ReviewRequestEngine {
   private readonly seenJobIds = new Set<string>();
   /** customerId to the time the complaint was flagged. */
   private readonly complaints = new Map<string, Date>();
+  private ticking = false;
 
   constructor(config: EngineConfig, sender: Sender) {
     this.config = config;
@@ -48,14 +50,16 @@ export class ReviewRequestEngine {
       return this.suppress(ask, now, "complaint_flag", this.complaintDetail(complaintAt));
     }
     if (job.optedOut) {
+      // An opt out also stops an ask still waiting from an earlier job.
+      for (const waiting of this.pendingFor(job.customerId)) {
+        this.suppress(waiting, now, "opted_out", `customer opted out on job ${job.id}`);
+      }
       return this.suppress(ask, now, "opted_out", "customer opted out of messages");
     }
     if (!ask.to) {
       return this.suppress(ask, now, "no_contact", "no phone number on the job");
     }
-    const pending = this.askList.find(
-      (a) => a.status === "scheduled" && a.customerId === job.customerId,
-    );
+    const pending = this.pendingFor(job.customerId)[0];
     if (pending) {
       return this.suppress(
         ask,
@@ -87,9 +91,7 @@ export class ReviewRequestEngine {
    */
   flagComplaint(customerId: string, at: Date): Ask[] {
     if (!this.complaints.has(customerId)) this.complaints.set(customerId, at);
-    const hit = this.askList.filter(
-      (a) => a.status === "scheduled" && a.customerId === customerId,
-    );
+    const hit = this.pendingFor(customerId);
     for (const ask of hit) {
       this.suppress(ask, at, "complaint_flag", this.complaintDetail(at));
     }
@@ -102,9 +104,21 @@ export class ReviewRequestEngine {
 
   /**
    * Send every ask that is due at `now`. Call this from a timer or a cron job.
-   * Returns the asks whose state changed during this tick.
+   * Returns the asks whose state changed during this tick. A tick that starts
+   * while an earlier one is still sending does nothing, so a slow provider on a
+   * short timer cannot send the same ask twice.
    */
   async tick(now: Date): Promise<Ask[]> {
+    if (this.ticking) return [];
+    this.ticking = true;
+    try {
+      return await this.sendDue(now);
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async sendDue(now: Date): Promise<Ask[]> {
     const due = this.askList
       .filter((a) => a.status === "scheduled" && a.scheduledFor !== null)
       .filter((a) => a.scheduledFor!.getTime() <= now.getTime())
@@ -112,6 +126,8 @@ export class ReviewRequestEngine {
 
     const touched: Ask[] = [];
     for (const ask of due) {
+      // A complaint or opt out can arrive while an earlier send is in flight.
+      if (ask.status !== "scheduled") continue;
       touched.push(ask);
       const complaintAt = this.complaints.get(ask.customerId);
       if (complaintAt) {
@@ -131,7 +147,13 @@ export class ReviewRequestEngine {
         continue;
       }
       const to = ask.to!;
-      const result = await this.sender.send({ askId: ask.id, to, body: this.messageFor(ask) }, now);
+      let result: SendResult;
+      try {
+        result = await this.sender.send({ askId: ask.id, to, body: this.messageFor(ask) }, now);
+      } catch (error) {
+        // A sender that throws must not block the asks queued behind it.
+        result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
       if (result.ok) {
         ask.status = "sent";
         ask.sentAt = now;
@@ -160,6 +182,10 @@ export class ReviewRequestEngine {
       `Hi ${firstName}, thanks for having us out for "${ask.jobTitle}". ` +
       `If you have a minute, a short review helps a lot: ${this.config.reviewLink}`
     );
+  }
+
+  private pendingFor(customerId: string): Ask[] {
+    return this.askList.filter((a) => a.status === "scheduled" && a.customerId === customerId);
   }
 
   private newAsk(job: ClosedJob): Ask {

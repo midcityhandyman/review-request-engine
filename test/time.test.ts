@@ -56,3 +56,16 @@ test("nextAllowedTime lands on the local end time across a daylight saving chang
   assert.equal(formatLocal(next, "America/Chicago"), "Sun 2026-11-01 09:00");
   assert.equal(inQuietHours(next, overnight, "America/Chicago"), false);
 });
+
+test("nextAllowedTime does not overshoot the end time the night clocks go forward", () => {
+  // Clocks in Chicago skip from 02:00 to 03:00 on 2026-03-08.
+  const before = new Date("2026-03-07T22:00:00-06:00");
+  const next = nextAllowedTime(before, overnight, "America/Chicago");
+  assert.equal(formatLocal(next, "America/Chicago"), "Sun 2026-03-08 09:00");
+  // An end time inside the skipped hour resolves to the first minute that exists.
+  const gap = { startMinute: parseClock("20:00"), endMinute: parseClock("02:30") };
+  assert.equal(
+    formatLocal(nextAllowedTime(before, gap, "America/Chicago"), "America/Chicago"),
+    "Sun 2026-03-08 03:00",
+  );
+});

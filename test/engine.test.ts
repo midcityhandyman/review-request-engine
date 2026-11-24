@@ -138,6 +138,57 @@ test("replayed job events, opt outs and missing phones are suppressed with a rea
   );
 });
 
+test("an opt out on a later job cancels the ask still waiting for that customer", async () => {
+  const { engine, sender } = setup();
+  const first = engine.jobClosed(job("2026-11-02T10:00"));
+  const second = engine.jobClosed(job("2026-11-02T10:30", { optedOut: true }));
+  assert.equal(second.reason, "opted_out");
+  assert.equal(first.status, "suppressed");
+  assert.equal(first.reason, "opted_out");
+  await engine.tick(utc("2026-11-02T13:00"));
+  assert.equal(sender.outbox.length, 0);
+});
+
+test("a sender that throws marks that ask failed and the next ask still goes out", async () => {
+  const config = loadConfig({ TIMEZONE: "UTC" });
+  const sent: string[] = [];
+  const engine = new ReviewRequestEngine(config, {
+    async send(message) {
+      if (message.to === "+1-555-0101") throw new Error("network down");
+      sent.push(message.to);
+      return { ok: true, providerId: "p-1" };
+    },
+  });
+  const bad = engine.jobClosed(job("2026-11-02T10:00"));
+  const good = engine.jobClosed(job("2026-11-02T10:05", { customerId: "c-2", phone: "+1-555-0102" }));
+  await engine.tick(utc("2026-11-02T13:00"));
+  assert.equal(bad.status, "failed");
+  assert.equal(bad.detail, "network down");
+  assert.equal(good.status, "sent");
+  assert.deepEqual(sent, ["+1-555-0102"]);
+});
+
+test("a tick that overlaps a slow send does not send the same ask twice", async () => {
+  const config = loadConfig({ TIMEZONE: "UTC" });
+  let calls = 0;
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const engine = new ReviewRequestEngine(config, {
+    async send() {
+      calls += 1;
+      await gate;
+      return { ok: true, providerId: `p-${calls}` };
+    },
+  });
+  const ask = engine.jobClosed(job("2026-11-02T10:00"));
+  const slow = engine.tick(utc("2026-11-02T12:00"));
+  assert.deepEqual(await engine.tick(utc("2026-11-02T12:01")), []);
+  release();
+  await slow;
+  assert.equal(calls, 1);
+  assert.equal(ask.status, "sent");
+});
+
 test("a failed send is reported as failed and does not use up the window", async () => {
   const { engine } = setup({}, ["+1-555-0101"]);
   const ask = engine.jobClosed(job("2026-11-02T10:00"));
