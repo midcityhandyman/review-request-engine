@@ -1,0 +1,75 @@
+Review request engine demo (offline, mock sender, synthetic data)
+Rules: 2h delay, quiet hours 20:00 to 09:00 America/Chicago, one ask per customer per 90 days
+
+TIMELINE
+Mon 2026-11-02 10:00  job closed    J-101 Alex Sample: Faucet replacement
+Mon 2026-11-02 11:00  job closed    J-102 Riley Demo: Drywall patch
+Mon 2026-11-02 12:10  complaint     flagged for Riley Demo
+Mon 2026-11-02 14:30  job closed    J-103 Casey Placeholder: Door rehang
+Mon 2026-11-02 19:15  job closed    J-104 Jordan Example: Ceiling fan install
+Mon 2026-11-02 19:40  job closed    J-105 Jordan Example: Light switch swap
+Tue 2026-11-03 09:30  job closed    J-106 Morgan Test: Gutter cleaning
+Tue 2026-11-03 10:15  job closed    J-107 Taylor Mock: Deck repair
+Tue 2026-11-03 13:00  job closed    J-108 Sam Fixture: Tile regrout
+Wed 2026-11-04 08:00  job closed    J-101 Alex Sample: Faucet replacement
+Thu 2026-11-05 15:00  job closed    J-109 Alex Sample: Shelf install
+Fri 2026-11-06 18:30  job closed    J-110 Drew Dummy: Fence gate repair
+
+ENGINE LOG
+Mon 2026-11-02 10:00  ask-001  scheduled for Mon 2026-11-02 12:00
+Mon 2026-11-02 11:00  ask-002  scheduled for Mon 2026-11-02 13:00
+Mon 2026-11-02 12:00  ask-001  sent to +1-555-0101 (mock-0001)
+Mon 2026-11-02 12:10  ask-002  suppressed: complaint_flag (complaint flagged Mon 2026-11-02 12:10)
+Mon 2026-11-02 14:30  ask-003  suppressed: complaint_flag (complaint flagged Mon 2026-11-02 14:30)
+Mon 2026-11-02 19:15  ask-004  scheduled for Tue 2026-11-03 09:00 (moved out of quiet hours)
+Mon 2026-11-02 19:40  ask-005  suppressed: ask_already_pending (ask-004 for job J-104 is already scheduled)
+Tue 2026-11-03 09:00  ask-004  sent to +1-555-0102 (mock-0002)
+Tue 2026-11-03 09:30  ask-006  suppressed: no_contact (no phone number on the job)
+Tue 2026-11-03 10:15  ask-007  suppressed: opted_out (customer opted out of messages)
+Tue 2026-11-03 13:00  ask-008  scheduled for Tue 2026-11-03 15:00
+Tue 2026-11-03 15:00  ask-008  send failed: mock provider rejected the recipient
+Wed 2026-11-04 08:00  ask-009  suppressed: duplicate_job_event (job J-101 was already processed)
+Thu 2026-11-05 15:00  ask-010  suppressed: recent_ask_in_window (ask-001 was sent Mon 2026-11-02 12:00, inside the 90 day window)
+Fri 2026-11-06 18:30  ask-011  scheduled for Sat 2026-11-07 09:00 (moved out of quiet hours)
+
+MOCK OUTBOX
+Mon 2026-11-02 12:00  mock-0001 -> +1-555-0101
+  Hi Alex, thanks for having us out for "Faucet replacement". If you have a minute, a short review helps a lot: https://example.com/review
+Tue 2026-11-03 09:00  mock-0002 -> +1-555-0102
+  Hi Jordan, thanks for having us out for "Ceiling fan install". If you have a minute, a short review helps a lot: https://example.com/review
+
+REVIEW ASK REPORT
+Times shown in America/Chicago
+
+Job closed events: 11
+Asks sent:         2
+Asks suppressed:   7
+Sends failed:      1
+Still scheduled:   1
+
+Suppressed by reason
+  complaint_flag         2
+  ask_already_pending    1
+  duplicate_job_event    1
+  no_contact             1
+  opted_out              1
+  recent_ask_in_window   1
+
+Sent (2)
+  ask-001  J-101  Alex Sample        sent Mon 2026-11-02 12:00
+  ask-004  J-104  Jordan Example     sent Tue 2026-11-03 09:00
+
+Suppressed (7)
+  ask-002  J-102  Riley Demo         at Mon 2026-11-02 12:10  complaint_flag: complaint flagged Mon 2026-11-02 12:10
+  ask-003  J-103  Casey Placeholder  at Mon 2026-11-02 14:30  complaint_flag: complaint flagged Mon 2026-11-02 14:30
+  ask-005  J-105  Jordan Example     at Mon 2026-11-02 19:40  ask_already_pending: ask-004 for job J-104 is already scheduled
+  ask-006  J-106  Morgan Test        at Tue 2026-11-03 09:30  no_contact: no phone number on the job
+  ask-007  J-107  Taylor Mock        at Tue 2026-11-03 10:15  opted_out: customer opted out of messages
+  ask-009  J-101  Alex Sample        at Wed 2026-11-04 08:00  duplicate_job_event: job J-101 was already processed
+  ask-010  J-109  Alex Sample        at Thu 2026-11-05 15:00  recent_ask_in_window: ask-001 was sent Mon 2026-11-02 12:00, inside the 90 day window
+
+Failed (1)
+  ask-008  J-108  Sam Fixture        due Tue 2026-11-03 15:00  mock provider rejected the recipient
+
+Still scheduled (1)
+  ask-011  J-110  Drew Dummy         due Sat 2026-11-07 09:00

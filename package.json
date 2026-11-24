@@ -1,0 +1,19 @@
+{
+  "name": "review-request-engine",
+  "version": "0.1.0",
+  "description": "Schedules one review ask per closed job with timing and suppression rules, a mock sender, and a report of asks sent and suppressed.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\"",
+    "demo": "node demo/run.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
